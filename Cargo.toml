@@ -1,0 +1,20 @@
+[package]
+name    = "ic_hnsw"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]   # cdylib for canister wasm, rlib for tests
+
+[dependencies]
+candid             = "0.10"
+ic-cdk             = "0.17"
+ic-stable-structures = "0.6"
+serde              = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# nothing – all tests use the rlib
+
+[profile.release]
+lto            = true
+opt-level      = "z"   # optimise for binary size (important for canister limits)
