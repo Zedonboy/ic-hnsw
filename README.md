@@ -18,13 +18,15 @@ Built on the [HNSW](https://arxiv.org/abs/1603.09320) (Hierarchical Navigable Sm
   - [Distance metrics](#distance-metrics)
   - [HNSW parameters](#hnsw-parameters)
   - [Access control](#access-control)
+  - [Controller-only gate](#controller-only-gate)
 - [Tutorial](#tutorial)
   - [1. Create a collection](#1-create-a-collection)
   - [2. Insert vectors](#2-insert-vectors)
   - [3. Search](#3-search)
   - [4. Manage access](#4-manage-access)
-  - [5. Delete a node](#5-delete-a-node)
-  - [6. Delete a collection](#6-delete-a-collection)
+  - [5. Lock the canister to controllers only](#5-lock-the-canister-to-controllers-only)
+  - [6. Delete a node](#6-delete-a-node)
+  - [7. Delete a collection](#7-delete-a-collection)
 - [Embedding + search end-to-end](#embedding--search-end-to-end)
 - [Calling from another canister](#calling-from-another-canister)
 - [Instruction budget](#instruction-budget)
@@ -69,6 +71,7 @@ Memory layout (managed by `MemoryManager`):
 |-----------|----------|
 | 0 | `StableBTreeMap<u32, StoredCollection>` — collection metadata |
 | 1 | `StableBTreeMap<NodeKey, StoredNode>` — vectors + HNSW edge lists |
+| 2 | `StableCell<bool>` — controller-only gate flag |
 
 ---
 
@@ -78,7 +81,24 @@ Memory layout (managed by `MemoryManager`):
 
 Deploy `ic_hnsw` as its own canister. All endpoints are already wired in the compiled WASM.
 
-**`dfx.json`**
+**Using pre-built assets (Recommended)**
+
+You can use the release asset links directly in your `dfx.json` to deploy without compiling:
+
+```json
+{
+  "canisters": {
+    "ic_hnsw": {
+      "type": "custom",
+      "candid": "https://github.com/Zedonboy/ic-hnsw/releases/latest/download/ic_hnsw.did",
+      "wasm": "https://github.com/Zedonboy/ic-hnsw/releases/latest/download/ic_hnsw.wasm"
+    }
+  }
+}
+```
+
+**Building from source**
+
 ```json
 {
   "canisters": {
@@ -132,7 +152,7 @@ ic_hnsw::export_hnsw!();
 ic_cdk::export_candid!();
 ```
 
-That is all. The macro expands to ten `#[update]`/`#[query]` functions that delegate to `ic_hnsw::api::*`. The library owns its stable-memory segments and never interferes with yours.
+That is all. The macro expands to twelve `#[update]`/`#[query]` functions that delegate to `ic_hnsw::api::*`. The library owns its stable-memory segments and never interferes with yours.
 
 **Calling the API programmatically** (without going through Candid) from within the same canister:
 
@@ -196,6 +216,27 @@ Each collection has one **Owner** and optional lists of **Writers** and **Reader
 | `Reader` | Search, view collection info |
 
 Callers with no role receive `Unauthorized`.
+
+### Controller-only gate
+
+On top of collection-level roles there is a canister-wide **controller-only gate**. When enabled, every caller that is not a [canister controller](https://internetcomputer.org/docs/current/concepts/governance/#canister-controllers) receives `Unauthorized` before any collection check even runs.
+
+The full decision tree:
+
+```
+Is the caller a canister controller?
+  YES → always allowed, implicit Owner on every collection
+  NO  → is the controller-only gate enabled?
+          YES → Unauthorized (blocked entirely)
+          NO  → normal collection role check (Owner / Writer / Reader)
+```
+
+Key properties:
+- **Controllers always win.** Even when the gate is off, a controller can do anything on any collection without being listed as owner, writer, or reader.
+- **Survives upgrades.** The flag is stored in a `StableCell` in stable memory (memory ID 2) so it persists across canister upgrades with no `pre_upgrade`/`post_upgrade` hooks needed.
+- **Self-protecting.** Only a canister controller can call `set_controller_only`, so the gate cannot be disabled by a rogue writer or reader.
+
+Use the gate for private deployments where the canister should only respond to the deploying identity or a small group of admins added as controllers via `dfx canister update-settings`.
 
 ---
 
@@ -316,7 +357,38 @@ dfx canister call ic_hnsw transfer_ownership '(0 : nat32, principal "ccccc-cc")'
 
 ---
 
-### 5. Delete a node
+### 5. Lock the canister to controllers only
+
+**Enable the gate** — from this point on, only canister controllers can call anything:
+
+```bash
+dfx canister call ic_hnsw set_controller_only '(true)'
+```
+
+**Check the current state:**
+
+```bash
+dfx canister call ic_hnsw get_controller_only '()'
+# → (true)
+```
+
+**Add another principal as a canister controller** so they can also call in:
+
+```bash
+dfx canister update-settings ic_hnsw --add-controller <principal>
+```
+
+**Disable the gate** — reopens the canister to normal collection-level roles:
+
+```bash
+dfx canister call ic_hnsw set_controller_only '(false)'
+```
+
+> `set_controller_only` itself is controller-gated and cannot be called by writers or readers.
+
+---
+
+### 6. Delete a node
 
 ```bash
 dfx canister call ic_hnsw delete_node '(0 : nat32, 42 : nat64)'
@@ -326,7 +398,7 @@ dfx canister call ic_hnsw delete_node '(0 : nat32, 42 : nat64)'
 
 ---
 
-### 6. Delete a collection
+### 7. Delete a collection
 
 Removes the collection and **all its vectors**. Owner only. This is irreversible.
 
@@ -566,6 +638,9 @@ service : {
   insert             : (InsertRequest)                 -> (variant { Ok : NodeId; Err : HnswError });
   delete_node        : (CollectionId, NodeId)          -> (variant { Ok; Err : HnswError });
   search             : (SearchRequest)                 -> (variant { Ok : vec SearchResult; Err : HnswError }) query;
+
+  // Canister-level access gate (controller only)
+  set_controller_only : (bool)                         -> (variant { Ok; Err : HnswError });
+  get_controller_only : ()                             -> (bool) query;
 };
 ```
-# ic-hnsw

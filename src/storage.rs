@@ -6,10 +6,11 @@
 //! |-----------|----------|
 //! | 0         | `StableBTreeMap<u32, StoredCollection>` — collection metadata |
 //! | 1         | `StableBTreeMap<NodeKey, StoredNode>` — vectors + HNSW edges |
+//! | 2         | `StableCell<bool>` — controller-only gate flag |
 
 use candid::{CandidType, Principal, decode_one, encode_one};
 use ic_stable_structures::{
-    DefaultMemoryImpl, StableBTreeMap, Storable,
+    DefaultMemoryImpl, StableBTreeMap, StableCell, Storable,
     memory_manager::{MemoryId, MemoryManager, VirtualMemory},
     storable::Bound,
 };
@@ -148,6 +149,16 @@ thread_local! {
         RefCell::new(StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(1)))
         ));
+
+    /// Canister-level access gate. When `true`, only canister controllers
+    /// may call any endpoint. Stored in stable memory so it survives upgrades.
+    static CONTROLLER_ONLY: RefCell<StableCell<bool, Mem>> =
+        RefCell::new(
+            StableCell::init(
+                MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(2))),
+                false,
+            ).expect("init controller_only cell")
+        );
 }
 
 // ── Convenience wrappers ──────────────────────────────────────────────────────
@@ -206,5 +217,17 @@ pub fn remove_all_nodes(collection_id: CollectionId) {
         for k in keys {
             store.remove(&k);
         }
+    });
+}
+
+// ── Controller-only gate ──────────────────────────────────────────────────────
+
+pub fn get_controller_only() -> bool {
+    CONTROLLER_ONLY.with(|c| *c.borrow().get())
+}
+
+pub fn set_controller_only(val: bool) {
+    CONTROLLER_ONLY.with(|c| {
+        c.borrow_mut().set(val).expect("set controller_only");
     });
 }

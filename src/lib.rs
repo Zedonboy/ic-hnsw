@@ -152,6 +152,16 @@ macro_rules! export_hnsw {
         ) -> $crate::error::Result<::std::vec::Vec<$crate::types::SearchResult>> {
             $crate::api::search(req)
         }
+
+        #[::ic_cdk::update]
+        fn set_controller_only(enabled: bool) -> $crate::error::Result<()> {
+            $crate::api::set_controller_only(enabled)
+        }
+
+        #[::ic_cdk::query]
+        fn get_controller_only() -> bool {
+            $crate::api::get_controller_only_setting()
+        }
     };
 }
 
@@ -225,6 +235,16 @@ fn delete_node(
 #[ic_cdk::query]
 fn search(req: types::SearchRequest) -> error::Result<Vec<types::SearchResult>> {
     api::search(req)
+}
+
+#[ic_cdk::update]
+fn set_controller_only(enabled: bool) -> error::Result<()> {
+    api::set_controller_only(enabled)
+}
+
+#[ic_cdk::query]
+fn get_controller_only() -> bool {
+    api::get_controller_only_setting()
 }
 
 ic_cdk::export_candid!();

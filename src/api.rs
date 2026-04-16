@@ -12,6 +12,7 @@ use crate::{
     storage::{
         StoredCollection,
         collection_exists_by_name, get_collection, get_node,
+        get_controller_only, set_controller_only as set_controller_only_flag,
         next_collection_id, put_collection, put_node,
         remove_all_nodes, remove_collection, remove_node,
     },
@@ -25,6 +26,15 @@ use crate::{
 
 pub(crate) fn require_role(coll: &StoredCollection, min_role: Role) -> Result<()> {
     let c = caller();
+    // Canister controllers always have implicit Owner access, regardless of mode.
+    if ic_cdk::api::is_controller(&c) {
+        return Ok(());
+    }
+    // When the controller-only gate is on, no one else may call.
+    if get_controller_only() {
+        return Err(HnswError::Unauthorized);
+    }
+    // Normal collection-level role check.
     match coll.role_of(&c) {
         Some(Role::Owner)  => Ok(()),
         Some(Role::Writer) if min_role != Role::Owner => Ok(()),
@@ -33,13 +43,49 @@ pub(crate) fn require_role(coll: &StoredCollection, min_role: Role) -> Result<()
     }
 }
 
+/// Check the canister-level gate for operations that have no collection yet
+/// (e.g. `create_collection`).
+pub(crate) fn check_gate() -> Result<()> {
+    let c = caller();
+    if ic_cdk::api::is_controller(&c) {
+        return Ok(());
+    }
+    if get_controller_only() {
+        return Err(HnswError::Unauthorized);
+    }
+    Ok(())
+}
+
 pub(crate) fn load_collection(id: CollectionId) -> Result<StoredCollection> {
     get_collection(id).ok_or(HnswError::CollectionNotFound(id))
+}
+
+// ── Canister-level gate ───────────────────────────────────────────────────────
+
+/// Enable or disable the controller-only access gate. Controller only.
+///
+/// When enabled every non-controller caller receives `Unauthorized`, regardless
+/// of their collection role. Canister controllers always retain implicit Owner
+/// access even when the gate is off.
+///
+/// The setting is stored in stable memory and survives canister upgrades.
+pub fn set_controller_only(enabled: bool) -> Result<()> {
+    if !ic_cdk::api::is_controller(&caller()) {
+        return Err(HnswError::Unauthorized);
+    }
+    set_controller_only_flag(enabled);
+    Ok(())
+}
+
+/// Query whether the controller-only gate is currently active.
+pub fn get_controller_only_setting() -> bool {
+    get_controller_only()
 }
 
 // ── Collection management ─────────────────────────────────────────────────────
 
 pub fn create_collection(config: CollectionConfig) -> Result<CollectionId> {
+    check_gate()?;
     if config.m < 2 || config.m > 64 {
         return Err(HnswError::InvalidConfig("m must be 2..=64".into()));
     }
