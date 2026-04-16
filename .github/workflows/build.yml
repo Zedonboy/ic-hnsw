@@ -41,6 +41,11 @@ jobs:
         env:
           RUSTFLAGS: "--allow warnings"
 
+      - name: Generate Candid
+        run: |
+          cargo install candid-extractor
+          candid-extractor target/wasm32-unknown-unknown/release/ic_hnsw.wasm > ic_hnsw.did
+
       - name: Prepare release artifacts
         run: |
           mkdir -p release
