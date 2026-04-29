@@ -319,7 +319,7 @@ pub fn search(req: SearchRequest) -> Result<Vec<SearchResult>> {
         None     => return Ok(vec![]),
     };
 
-    let metric = coll.distance_metric();
+    let metric = req.distance.unwrap_or_else(|| coll.distance_metric());
     let candidates = crate::hnsw::knn_search(
         req.collection_id,
         &req.vector,

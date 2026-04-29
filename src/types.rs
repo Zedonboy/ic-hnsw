@@ -73,6 +73,9 @@ pub struct SearchRequest {
     /// Candidate pool during search. Higher = better recall, more cycles.
     /// Must be ≥ top_k. Default 50.
     pub ef_search: u32,
+    /// Override the collection's distance metric for this search.
+    /// If `None`, the collection's configured metric is used.
+    pub distance: Option<DistanceMetric>,
 }
 
 #[derive(CandidType, Clone, Debug)]

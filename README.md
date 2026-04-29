@@ -195,6 +195,8 @@ The principal that calls `create_collection` becomes its **owner** and can grant
 
 When in doubt, use **Cosine** — it is the safe default for embedding model output.
 
+Each collection has a default metric set at creation time. You can **override it per search** by supplying the optional `distance` field in `SearchRequest`. This lets you experiment with different metrics against the same stored vectors without rebuilding the index.
+
 ### HNSW parameters
 
 | Parameter | Default | Effect |
@@ -292,7 +294,22 @@ dfx canister call ic_hnsw search '(
     collection_id = 0 : nat32;
     vector   = vec { 0.1; 0.4; -0.2; /* … same dimensionality … */ };
     top_k    = 5  : nat32;
-    ef_search = 50 : nat32
+    ef_search = 50 : nat32;
+    distance  = null
+  }
+)'
+```
+
+`distance` is optional. Pass `null` (or omit the field) to use the collection's configured metric. To override it for this search:
+
+```bash
+dfx canister call ic_hnsw search '(
+  record {
+    collection_id = 0 : nat32;
+    vector   = vec { 0.1; 0.4; -0.2; /* … */ };
+    top_k    = 5  : nat32;
+    ef_search = 50 : nat32;
+    distance  = opt variant { Euclidean }
   }
 )'
 ```
@@ -465,6 +482,7 @@ async fn semantic_search(
         vector,
         top_k,
         ef_search: top_k * 4,
+        distance: None, // use the collection's configured metric
     }).map_err(|e| format!("{:?}", e))?;
 
     // Decode the doc_id we packed into metadata during insert
@@ -503,6 +521,7 @@ async fn search_remote(
             vector,
             top_k: 10,
             ef_search: 40,
+            distance: None,
         },),
     )
     .await
@@ -601,6 +620,7 @@ type SearchRequest = record {
   vector        : vec float32;
   top_k         : nat32;
   ef_search     : nat32;
+  distance      : opt DistanceMetric;
 };
 
 type SearchResult = record {
